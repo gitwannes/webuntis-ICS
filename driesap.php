@@ -242,7 +242,7 @@ function foldLine(string $line): string
     return $result;
 }
 
-function runSync(array $config): array
+function runSync(array &$config, string $configFile): array
 {
     $logs = [];
     $allPeriods = [];
@@ -307,6 +307,10 @@ function runSync(array $config): array
         $utc = new DateTimeZone('UTC');
         $nowUtc = (new DateTimeImmutable('now', $utc))->format('Ymd\THis\Z');
 
+        // Update last generated time in config
+        $config['last_generated'] = (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
+        saveConfig($configFile, $config);
+
         $ics = [];
         $ics[] = 'BEGIN:VCALENDAR';
         $ics[] = 'VERSION:2.0';
@@ -315,6 +319,7 @@ function runSync(array $config): array
         $ics[] = 'METHOD:PUBLISH';
         $ics[] = foldLine('X-WR-CALNAME:' . icsEscape($config['calendar_name']));
         $ics[] = 'X-WR-TIMEZONE:' . $tz->getName();
+        $ics[] = 'X-LAST-GENERATED:' . $nowUtc; // Add custom header for last generation time
 
         foreach ($events as $event) {
             $startLocal = DateTimeImmutable::createFromFormat('Y-m-d H:i', $event['date'] . ' ' . $event['start_time'], $tz);
@@ -376,7 +381,7 @@ function runSync(array $config): array
             'status'  => 'NOT OK',
             'error'   => $e->getMessage(),
             'events'  => [],
-            'logs'    => $logs,
+            'logs'    => [],
         ];
     }
 }
@@ -388,7 +393,7 @@ function runSync(array $config): array
 $isCli = (php_sapi_name() === 'cli');
 
 if ($isCli) {
-    $result = runSync($config);
+    $result = runSync($config, $CONFIG_FILE);
     if (!$result['success']) {
         fwrite(STDERR, "ERROR: " . $result['error'] . "\n");
         exit(1);
@@ -398,6 +403,7 @@ if ($isCli) {
 }
 
 $message = '';
+$result = null;
 
 if (empty($config['classes'])) {
     try {
@@ -423,7 +429,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $config['months_after'] = (int)$_POST['months_after'];
         $config['calendar_name'] = $_POST['calendar_name'];
         saveConfig($CONFIG_FILE, $config);
-        $message = "Settings saved. Synchronization executed.";
+        $message = "Settings saved successfully.";
+    } elseif (isset($_POST['generate_ics'])) {
+        $result = runSync($config, $CONFIG_FILE);
+        $message = "ICS Calendar generated successfully.";
     }
 }
 
@@ -437,8 +446,6 @@ if (isset($_GET['download'])) {
     }
 }
 
-$result = runSync($config);
-
 header('Content-Type: text/html; charset=utf-8');
 ?>
 <!DOCTYPE html>
@@ -450,13 +457,14 @@ header('Content-Type: text/html; charset=utf-8');
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 2rem; background: #f4f5f7; color: #333; }
         .card { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
-        h1, h2 { margin-top: 0; }
+        h1, h2, h3 { margin-top: 0; }
         .form-group { margin-bottom: 1rem; }
         label { display: block; font-weight: bold; margin-bottom: 0.5rem; }
-        select, input[type="text"], input[type="number"] { width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; }
-        .btn { padding: 0.5rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; }
+        select, input[type="text"], input[type="number"] { width: 100%; max-width: 400px; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 0.5rem; }
+        .btn { padding: 0.6rem 1.2rem; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block; }
         .btn-primary { background: #007bff; color: white; }
-        .btn-secondary { background: #6c757d; color: white; margin-top: 0.5rem; }
+        .btn-success { background: #28a745; color: white; }
+        .btn-secondary { background: #6c757d; color: white; }
         .badge { padding: 0.35rem 0.65rem; border-radius: 4px; font-weight: bold; color: white; }
         .badge-ok { background: #28a745; }
         .badge-not-ok { background: #dc3545; }
@@ -464,21 +472,34 @@ header('Content-Type: text/html; charset=utf-8');
         th, td { border: 1px solid #dee2e6; padding: 0.75rem; text-align: left; }
         th { background: #f8f9fa; }
         .alert { padding: 1rem; background: #d4edda; color: #155724; border-radius: 4px; margin-bottom: 1rem; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
     </style>
+    <script>
+        function filterClasses() {
+            var input = document.getElementById('classSearch').value.toLowerCase();
+            var options = document.getElementById('classSelect').options;
+            for (var i = 0; i < options.length; i++) {
+                var text = options[i].text.toLowerCase();
+                options[i].style.display = text.indexOf(input) > -1 ? '' : 'none';
+            }
+        }
+    </script>
 </head>
 <body>
 
-    <h1>WebUntis Sync Settings</h1>
+    <h1>WebUntis Sync Dashboard</h1>
 
     <?php if ($message): ?>
         <div class="alert"><?= htmlspecialchars($message) ?></div>
     <?php endif; ?>
 
     <div class="card">
+        <h2>Configuration</h2>
         <form method="POST">
             <div class="form-group">
                 <label>Class Group</label>
-                <select name="class_id">
+                <input type="text" id="classSearch" placeholder="Search for a class..." onkeyup="filterClasses()">
+                <select name="class_id" id="classSelect">
                     <?php foreach ($config['classes'] as $id => $name): ?>
                         <option value="<?= $id ?>" <?= $id == $config['class_id'] ? 'selected' : '' ?>>
                             <?= htmlspecialchars($name) ?>
@@ -503,60 +524,72 @@ header('Content-Type: text/html; charset=utf-8');
                 <input type="text" name="calendar_name" value="<?= htmlspecialchars($config['calendar_name']) ?>">
             </div>
 
-            <button type="submit" name="save_settings" value="1" class="btn btn-primary">Save Settings & Sync</button>
+            <button type="submit" name="save_settings" value="1" class="btn btn-primary">Save Settings</button>
         </form>
     </div>
 
     <div class="card">
-        <h2>Sync Status</h2>
-        <p>Status: <span class="badge <?= $result['success'] ? 'badge-ok' : 'badge-not-ok' ?>"><?= $result['status'] ?></span></p>
-        
-        <?php if (!$result['success']): ?>
-            <p style="color: red;"><?= htmlspecialchars($result['error']) ?></p>
-        <?php else: ?>
-            <p><a href="?download=1" class="btn btn-primary">📥 Download .ics File</a></p>
-        <?php endif; ?>
-    </div>
-
-    <?php if (!empty($result['logs'])): ?>
-    <div class="card">
-        <h2>Logs</h2>
-        <div style="background: #e9ecef; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 0.9em;">
-            <?php foreach ($result['logs'] as $log): ?>
-                <div><?= htmlspecialchars($log) ?></div>
-            <?php endforeach; ?>
+        <div class="flex-between">
+            <div>
+                <h2>Manual Sync</h2>
+                <p><strong>Last Generated:</strong> <?= htmlspecialchars($config['last_generated'] ?? 'Never') ?></p>
+            </div>
+            <form method="POST">
+                <button type="submit" name="generate_ics" value="1" class="btn btn-success" style="font-size: 1.1rem; padding: 1rem 2rem;">🚀 Generate ICS Now</button>
+            </form>
         </div>
+        <p style="margin-top: 1rem;"><a href="?download=1" class="btn btn-primary">📥 Download Latest .ics File</a></p>
     </div>
-    <?php endif; ?>
 
-    <?php if (!empty($result['events'])): ?>
-    <div class="card">
-        <h2>Merged Calendar Preview</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Subject</th>
-                    <th>Combined Details (Lines)</th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php foreach ($result['events'] as $event): ?>
-                    <tr>
-                        <td><?= htmlspecialchars($event['date']) ?></td>
-                        <td><?= htmlspecialchars($event['start_time']) ?> - <?= htmlspecialchars($event['end_time']) ?></td>
-                        <td><strong><?= htmlspecialchars($event['subject']) ?></strong><br><small><?= htmlspecialchars($event['cell_state']) ?></small></td>
-                        <td>
-                            <?php foreach ($event['details'] as $line): ?>
-                                <div><?= htmlspecialchars($line) ?></div>
-                            <?php endforeach; ?>
-                        </td>
-                    </tr>
+    <?php if ($result !== null): ?>
+        <div class="card">
+            <h2>Generation Status</h2>
+            <p>Status: <span class="badge <?= $result['success'] ? 'badge-ok' : 'badge-not-ok' ?>"><?= $result['status'] ?></span></p>
+            <?php if (!$result['success']): ?>
+                <p style="color: red;"><?= htmlspecialchars($result['error']) ?></p>
+            <?php endif; ?>
+        </div>
+
+        <?php if (!empty($result['logs'])): ?>
+        <div class="card">
+            <h2>Logs</h2>
+            <div style="background: #e9ecef; padding: 1rem; border-radius: 4px; font-family: monospace; font-size: 0.9em;">
+                <?php foreach ($result['logs'] as $log): ?>
+                    <div><?= htmlspecialchars($log) ?></div>
                 <?php endforeach; ?>
-            </tbody>
-        </table>
-    </div>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($result['events'])): ?>
+        <div class="card">
+            <h2>Calendar Preview</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Time</th>
+                        <th>Subject</th>
+                        <th>Combined Details (Lines)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($result['events'] as $event): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($event['date']) ?></td>
+                            <td><?= htmlspecialchars($event['start_time']) ?> - <?= htmlspecialchars($event['end_time']) ?></td>
+                            <td><strong><?= htmlspecialchars($event['subject']) ?></strong><br><small><?= htmlspecialchars($event['cell_state']) ?></small></td>
+                            <td>
+                                <?php foreach ($event['details'] as $line): ?>
+                                    <div><?= htmlspecialchars($line) ?></div>
+                                <?php endforeach; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                </tbody>
+            </table>
+        </div>
+        <?php endif; ?>
     <?php endif; ?>
 
 </body>

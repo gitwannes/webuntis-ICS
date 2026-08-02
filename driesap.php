@@ -152,15 +152,41 @@ function loadExternalDataMap(string $file): array
 // WebUntis API Fetching
 // ---------------------------------------------------------------------------
 
+/**
+ * Safely fetches data from a URL using cURL instead of file_get_contents,
+ * providing accurate error messages on failure without using the @ suppressor.
+ */
+function safeApiRequest(string $url, int $timeout = 10): string
+{
+    $ch = curl_init($url);
+    if ($ch === false) {
+        throw new RuntimeException("Failed to initialize cURL.");
+    }
+    
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'WebUntis-ICS-Sync/1.0');
+    
+    $response = curl_exec($ch);
+    $error = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false) {
+        throw new RuntimeException("Network request failed: " . $error);
+    }
+    if ($httpCode >= 400) {
+        throw new RuntimeException("WebUntis API returned HTTP error $httpCode for $url");
+    }
+    
+    return $response;
+}
+
 function fetchClassesFromApi(string $server): array
 {
     $url = sprintf('https://%s/WebUntis/api/public/timetable/weekly/pageconfig?type=1', $server);
-    $ctx = stream_context_create(['http' => ['timeout' => 10, 'ignore_errors' => true]]);
-    $body = @file_get_contents($url, false, $ctx);
-    
-    if ($body === false) {
-        throw new RuntimeException("Failed to fetch class list from WebUntis.");
-    }
+    $body = safeApiRequest($url, 10);
     
     $data = json_decode($body, true);
     $classes = [];
@@ -195,10 +221,10 @@ function fetchWeek(string $server, int $classId, DateTimeImmutable $mondayDate):
             'formatId'    => 2,
         ])
     );
-    $ctx = stream_context_create(['http' => ['timeout' => 15, 'ignore_errors' => true]]);
-    $body = @file_get_contents($url, false, $ctx);
-    if ($body === false) {
-        throw new RuntimeException('Failed to fetch week of ' . $mondayDate->format('Y-m-d'));
+    try {
+        $body = safeApiRequest($url, 15);
+    } catch (RuntimeException $e) {
+        throw new RuntimeException('Failed to fetch week of ' . $mondayDate->format('Y-m-d') . ': ' . $e->getMessage());
     }
     return json_decode($body, true) ?? [];
 }

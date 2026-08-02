@@ -16,9 +16,26 @@ $dataUrl = sprintf(
 // 2. Fetch Page Config Endpoint (where elements are sometimes cached)
 $configUrl = sprintf('https://%s/WebUntis/api/public/timetable/weekly/pageconfig?type=1', $server);
 
-$ctx = stream_context_create(['http' => ['timeout' => 10]]);
-$dataResponse = @file_get_contents($dataUrl, false, $ctx);
-$configResponse = @file_get_contents($configUrl, false, $ctx);
+function safeApiRequest(string $url, int $timeout = 10): string
+{
+    $ch = curl_init($url);
+    if ($ch === false) return '{"error": "cURL init failed"}';
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $timeout);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    $response = curl_exec($ch);
+    $error = curl_error($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    
+    if ($response === false) return '{"error": "Request failed: ' . addslashes($error) . '"}';
+    if ($httpCode >= 400) return '{"error": "HTTP ' . $httpCode . '"}';
+    
+    return $response;
+}
+
+$dataResponse = safeApiRequest($dataUrl, 10);
+$configResponse = safeApiRequest($configUrl, 10);
 
 header('Content-Type: text/html; charset=utf-8');
 ?>

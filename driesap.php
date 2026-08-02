@@ -319,26 +319,65 @@ function processAndMergeEvents(array $rawLessons): array
     return $consecutiveMerged;
 }
 
-function icsEscape(string $text): string
+class IcsBuilder 
 {
-    return str_replace(['\\', ';', ',', "\n"], ['\\\\', '\\;', '\\,', '\\n'], $text);
-}
-
-function foldLine(string $line): string
-{
-    $result = '';
-    $bytes = strlen($line);
-    $chunkSize = 75;
-    $offset = 0;
-    $first = true;
-    while ($offset < $bytes) {
-        $len = $first ? $chunkSize : $chunkSize - 1;
-        $chunk = substr($line, $offset, $len);
-        $result .= ($first ? '' : "\r\n ") . $chunk;
-        $offset += $len;
-        $first = false;
+    private array $lines = [];
+    
+    public function __construct(string $calendarName, string $timezone, string $lastGeneratedUtc) 
+    {
+        $this->addLine('BEGIN:VCALENDAR');
+        $this->addLine('VERSION:2.0');
+        $this->addLine('PRODID:-//hofmans.be//WebUntis Sync//NL');
+        $this->addLine('CALSCALE:GREGORIAN');
+        $this->addLine('METHOD:PUBLISH');
+        $this->addProperty('X-WR-CALNAME', $calendarName);
+        $this->addProperty('X-WR-TIMEZONE', $timezone);
+        $this->addProperty('X-LAST-GENERATED', $lastGeneratedUtc);
     }
-    return $result;
+    
+    public function addEvent(string $uid, string $dtStamp, string $dtStart, string $dtEnd, string $summary, string $description): void 
+    {
+        $this->addLine('BEGIN:VEVENT');
+        $this->addProperty('UID', $uid);
+        $this->addProperty('DTSTAMP', $dtStamp);
+        $this->addProperty('DTSTART', $dtStart);
+        $this->addProperty('DTEND', $dtEnd);
+        $this->addProperty('SUMMARY', $summary);
+        if ($description !== '') {
+            $this->addProperty('DESCRIPTION', $description);
+        }
+        $this->addLine('END:VEVENT');
+    }
+    
+    public function build(): string 
+    {
+        $this->addLine('END:VCALENDAR');
+        return implode("\r\n", $this->lines) . "\r\n";
+    }
+    
+    private function addProperty(string $key, string $value): void 
+    {
+        $escaped = str_replace(['\\', ';', ',', "\n", "\r"], ['\\\\', '\\;', '\\,', '\\n', ''], $value);
+        $line = $key . ':' . $escaped;
+        $this->lines[] = $this->fold($line);
+    }
+    
+    private function addLine(string $line): void 
+    {
+        $this->lines[] = $this->fold($line);
+    }
+    
+    private function fold(string $line): string 
+    {
+        $result = '';
+        while (strlen($line) > 75) {
+            $chunk = mb_strcut($line, 0, 75, 'UTF-8');
+            $result .= $chunk . "\r\n ";
+            $line = substr($line, strlen($chunk));
+        }
+        $result .= $line;
+        return $result;
+    }
 }
 
 function runSync(array &$config, string $configFile): array
@@ -419,15 +458,7 @@ function runSync(array &$config, string $configFile): array
         $config['last_generated'] = (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
         saveConfig($configFile, $config);
 
-        $ics = [];
-        $ics[] = 'BEGIN:VCALENDAR';
-        $ics[] = 'VERSION:2.0';
-        $ics[] = 'PRODID:-//hofmans.be//WebUntis Sync//NL';
-        $ics[] = 'CALSCALE:GREGORIAN';
-        $ics[] = 'METHOD:PUBLISH';
-        $ics[] = foldLine('X-WR-CALNAME:' . icsEscape($config['calendar_name']));
-        $ics[] = 'X-WR-TIMEZONE:' . $tz->getName();
-        $ics[] = 'X-LAST-GENERATED:' . $nowUtc; 
+        $ics = new IcsBuilder($config['calendar_name'], $tz->getName(), $nowUtc);
 
         foreach ($events as $event) {
             $startLocal = DateTimeImmutable::createFromFormat('Y-m-d H:i', $event['date'] . ' ' . $event['start_time'], $tz);
@@ -450,22 +481,12 @@ function runSync(array &$config, string $configFile): array
                 $descriptionParts[] = "State: {$event['cell_state']}";
             }
             
-            $description = implode('\\n', array_map('icsEscape', $descriptionParts));
+            $description = implode("\n", $descriptionParts);
 
-            $ics[] = 'BEGIN:VEVENT';
-            $ics[] = foldLine('UID:' . $uid);
-            $ics[] = foldLine('DTSTAMP:' . $nowUtc);
-            $ics[] = foldLine('DTSTART:' . $startUtc);
-            $ics[] = foldLine('DTEND:' . $endUtc);
-            $ics[] = foldLine('SUMMARY:' . icsEscape($event['subject'])); // Just the subject now
-            if ($description !== '') {
-                $ics[] = foldLine('DESCRIPTION:' . $description);
-            }
-            $ics[] = 'END:VEVENT';
+            $ics->addEvent($uid, $nowUtc, $startUtc, $endUtc, $event['subject'], $description);
         }
-        $ics[] = 'END:VCALENDAR';
         
-        $icsContent = implode("\r\n", $ics) . "\r\n";
+        $icsContent = $ics->build();
         
         $tmpPath = __DIR__ . '/' . $config['output_path'] . '.tmp';
         $finalPath = __DIR__ . '/' . $config['output_path'];

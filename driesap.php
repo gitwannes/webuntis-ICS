@@ -524,7 +524,16 @@ function runSync(array &$config, string $configFile, array &$state, string $stat
         rename($tmpPath, $finalPath);
 
         $logs[] = "Wrote ICS to " . $finalPath;
-        writeAppLog('ICS generated', 'Success: ' . count($events) . ' events written.');
+        $logMessage = 'Success: ' . count($events) . ' events written.';
+        if (count($events) > 0) {
+            $first = $events[0];
+            $last = $events[count($events) - 1];
+            $logMessage .= sprintf(' (First: %s %s, Last: %s %s)', 
+                $first['date'], $first['start_time'], 
+                $last['date'], $last['start_time']
+            );
+        }
+        writeAppLog('ICS generated', $logMessage);
 
         return [
             'success' => true,

@@ -19,6 +19,7 @@ error_reporting(E_ALL);
 // ---------------------------------------------------------------------------
 
 $CONFIG_FILE = __DIR__ . '/driesap_config.json';
+$STATE_FILE = __DIR__ . '/driesap_state.json';
 $EXTERNAL_DATA_FILE = __DIR__ . '/webuntisdata.json';
 $LOG_FILE = __DIR__ . '/driesap.log';
 
@@ -67,6 +68,34 @@ function saveConfig(string $file, array $config): void
     $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
     if (file_put_contents($file, $json) === false) {
         throw new RuntimeException("Failed to write to configuration file.");
+    }
+}
+
+/**
+ * Loads dynamic application state (like cached classes and last_generated timestamp)
+ * from a separate JSON file to avoid race conditions with static configuration.
+ */
+function loadState(string $file): array
+{
+    if (!file_exists($file)) {
+        return ['classes' => [], 'last_generated' => 'Never'];
+    }
+    $json = file_get_contents($file);
+    $state = json_decode($json, true);
+    if (!is_array($state)) {
+        return ['classes' => [], 'last_generated' => 'Never'];
+    }
+    return $state;
+}
+
+/**
+ * Saves the dynamic application state to the JSON file.
+ */
+function saveState(string $file, array $state): void
+{
+    $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    if (file_put_contents($file, $json) === false) {
+        writeAppLog('Warning', "Failed to write to state file: $file");
     }
 }
 
@@ -380,7 +409,7 @@ class IcsBuilder
     }
 }
 
-function runSync(array &$config, string $configFile): array
+function runSync(array &$config, string $configFile, array &$state, string $stateFile): array
 {
     global $EXTERNAL_DATA_FILE;
     $logs = [];
@@ -455,8 +484,8 @@ function runSync(array &$config, string $configFile): array
         $utc = new DateTimeZone('UTC');
         $nowUtc = (new DateTimeImmutable('now', $utc))->format('Ymd\THis\Z');
 
-        $config['last_generated'] = (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
-        saveConfig($configFile, $config);
+        $state['last_generated'] = (new DateTimeImmutable('now', $tz))->format('Y-m-d H:i:s');
+        saveState($stateFile, $state);
 
         $ics = new IcsBuilder($config['calendar_name'], $tz->getName(), $nowUtc);
 
@@ -520,11 +549,12 @@ function runSync(array &$config, string $configFile): array
 // ---------------------------------------------------------------------------
 
 $config = loadConfig($CONFIG_FILE);
+$state = loadState($STATE_FILE);
 $isCli = (php_sapi_name() === 'cli');
 
 // --- 1. CLI / Cron Execution ---
 if ($isCli) {
-    $result = runSync($config, $CONFIG_FILE);
+    $result = runSync($config, $CONFIG_FILE, $state, $STATE_FILE);
     if (!$result['success']) {
         fwrite(defined('STDERR') ? STDERR : fopen('php://stderr', 'w'), "ERROR: " . $result['error'] . "\n");
         exit(1);
@@ -558,11 +588,11 @@ if (isset($_GET['feed'])) {
 $message = '';
 $result = null;
 
-if (empty($config['classes'])) {
+if (empty($state['classes'])) {
     try {
-        $config['classes'] = fetchClassesFromApi($config['server']);
-        saveConfig($CONFIG_FILE, $config);
-        writeAppLog('Config changed', 'Auto-fetched initial class list');
+        $state['classes'] = fetchClassesFromApi($config['server']);
+        saveState($STATE_FILE, $state);
+        writeAppLog('State changed', 'Auto-fetched initial class list');
     } catch (Exception $e) {
         $message = "Could not fetch initial classes: " . $e->getMessage();
     }
@@ -571,9 +601,9 @@ if (empty($config['classes'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['refresh_classes'])) {
         try {
-            $config['classes'] = fetchClassesFromApi($config['server']);
-            saveConfig($CONFIG_FILE, $config);
-            writeAppLog('Config changed', 'Refreshed class list from WebUntis');
+            $state['classes'] = fetchClassesFromApi($config['server']);
+            saveState($STATE_FILE, $state);
+            writeAppLog('State changed', 'Refreshed class list from WebUntis');
             $message = "Class list refreshed successfully.";
         } catch (Exception $e) {
             $message = "Error refreshing classes: " . $e->getMessage();
@@ -585,13 +615,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $config['calendar_name'] = $_POST['calendar_name'];
         saveConfig($CONFIG_FILE, $config);
         
-        $safeConfigLog = $config;
-        unset($safeConfigLog['classes']); // don't dump the whole class array to log
-        writeAppLog('Config changed', json_encode($safeConfigLog));
+        writeAppLog('Config changed', json_encode($config));
         
         $message = "Settings saved successfully.";
     } elseif (isset($_POST['generate_ics'])) {
-        $result = runSync($config, $CONFIG_FILE);
+        $result = runSync($config, $CONFIG_FILE, $state, $STATE_FILE);
         $message = "ICS Calendar generated successfully.";
     }
 }
@@ -665,7 +693,7 @@ header('Content-Type: text/html; charset=utf-8');
                         <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Target Class Group</label>
                         <input type="text" id="classSearch" placeholder="Filter classes..." onkeyup="filterClasses()" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded mb-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
                         <select name="class_id" id="classSelect" class="w-full px-3 py-2 border border-slate-200 rounded text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold text-slate-700">
-                            <?php foreach ($config['classes'] as $id => $name): ?>
+                            <?php foreach ($state['classes'] as $id => $name): ?>
                                 <option value="<?= $id ?>" <?= $id == $config['class_id'] ? 'selected' : '' ?>>
                                     <?= htmlspecialchars($name) ?>
                                 </option>
@@ -711,7 +739,7 @@ header('Content-Type: text/html; charset=utf-8');
                         <div>
                             <span class="block text-xs font-bold text-indigo-400 uppercase tracking-wider mb-1">Last Generated</span>
                             <span class="font-mono text-indigo-900 font-bold text-lg">
-                                <?= htmlspecialchars($config['last_generated'] ?? 'Never') ?>
+                                <?= htmlspecialchars($state['last_generated'] ?? 'Never') ?>
                             </span>
                         </div>
                         <?php if (file_exists($EXTERNAL_DATA_FILE)): ?>

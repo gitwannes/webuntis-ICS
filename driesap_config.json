@@ -6,7 +6,5 @@
     "months_after": 3,
     "calendar_name": "Dries AP",
     "output_path": "driesap.ics",
-    "timezone": "Europe/Brussels",
-    "classes": {},
-    "last_generated": ""
+    "timezone": "Europe\/Brussels"
 }

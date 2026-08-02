@@ -1,0 +1,30 @@
+# =========================
+# WebUntis Sync .gitignore
+# =========================
+
+# 1. OS & IDE Clutter
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# 2. Dependencies
+vendor/
+venv/
+env/
+
+# 3. Secrets & Configuration
+.env
+driesap_config.json
+
+# 4. Dynamic State, Data & Logs
+driesap_state.json
+# NOTE: DO upload webuntisdata.json: this: it is fetched from an authenticated session and used by the -unauthenticated- ICS generator
+*.log
+
+# 5. Generated Output
+*.ics
+*.tmp
+*.zip

@@ -1,0 +1,16 @@
+WebUntis ICS Sync Engine
+Copyright (c) 2026 Johan Wannes Hofmans (https://github.com/gitwannes)
+
+TERMS AND CONDITIONS FOR USE AND REDISTRIBUTION
+
+1. PERSONAL USE ONLY
+This software is provided strictly for personal, non-commercial, and household use.
+
+2. COMMERCIAL RESTRICTIONS
+Commercial use, sale, sublicensing, hosting as a paid service, or redistribution of this software, any derivative works, or any data extracted by it for financial or commercial gain is strictly prohibited.
+
+3. DATA RESPONSIBILITY
+Users are solely responsible for handling their credentials, API keys, and extracted schedule data in compliance with their educational institution's policies and applicable privacy laws (such as EU GDPR).
+
+4. DISCLAIMER OF WARRANTY
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR OR COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

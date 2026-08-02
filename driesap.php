@@ -1,4 +1,19 @@
 <?php
+
+# WebUntis ICS Sync Engine
+# Copyright (C) 2026 Johan Wannes Hofmans (https://github.com/gitwannes)
+#
+# PROPRIETARY / PRIVATE LICENSE
+# This program is intended strictly for personal, non-commercial use.
+#
+# Commercial use, sale, or redistribution of this software, any modified 
+# derivative works, or any data extracted by it is strictly prohibited.
+#
+# THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+# IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM OR DAMAGES.
+
 declare(strict_types=1);
 
 ini_set('display_errors', '1');

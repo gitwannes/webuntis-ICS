@@ -1,0 +1,13 @@
+# ----------------------------------------------------------------------
+# Redirect static ICS requests to the PHP proxy for logging
+# ----------------------------------------------------------------------
+
+<IfModule mod_rewrite.c>
+    # Enable the rewrite engine
+    RewriteEngine On
+
+    # Intercept exact requests for driesap.ics
+    # The [L] flag tells Apache to stop processing further rules if this matches.
+    # The [QSA] flag appends any existing query strings (just in case).
+    RewriteRule ^driesap\.ics$ driesap.php?feed=1 [L,QSA]
+</IfModule>

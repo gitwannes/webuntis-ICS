@@ -1,0 +1,12 @@
+{
+    "server": "ap.webuntis.com",
+    "school": "ap",
+    "class_id": 4014,
+    "months_before": 1,
+    "months_after": 3,
+    "calendar_name": "Dries AP",
+    "output_path": "driesap.ics",
+    "timezone": "Europe/Brussels",
+    "classes": {},
+    "last_generated": ""
+}
